@@ -69,7 +69,21 @@ class TNAFlix : AnimeHttpSource() {
     }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        // Need to parse player config for video links
+        val response = client.newCall(GET(episode.url)).execute()
+        val html = response.body.string()
+
+        val videoUrl = html.substringAfter("video_url: '").substringBefore("'")
+        if (videoUrl.isNotEmpty()) {
+            return listOf(Video(videoUrl, "Default", videoUrl))
+        }
+
+        // Alternative: flashvars
+        val flashvars = html.substringAfter("flashvars = {").substringBefore("};")
+        val link = flashvars.substringAfter("\"video_url\":\"").substringBefore("\"").replace("\\/", "/")
+        if (link.isNotEmpty()) {
+            return listOf(Video(link, "Default", link))
+        }
+
         return emptyList()
     }
 }

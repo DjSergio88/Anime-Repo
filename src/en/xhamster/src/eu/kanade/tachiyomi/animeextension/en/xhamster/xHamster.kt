@@ -70,14 +70,17 @@ class xHamster : AnimeHttpSource() {
         val response = client.newCall(GET(episode.url)).execute()
         val html = response.body.string()
 
-        // xHamster uses window.initials for video data
-        val initialsRegex = """window\.initials\s*=\s*(\{.*?\});""".toRegex()
-        val match = initialsRegex.find(html)
-        if (match != null) {
-            // Parse JSON and extract sources
-            // For now, I'll return empty as full JSON parsing requires DTOs
-        }
+        val initials = html.substringAfter("window.initials = ").substringBefore("};") + "}"
+        if (!initials.contains("http")) return emptyList()
 
-        return emptyList()
+        val sources = initials.substringAfter("\"sources\":{").substringBefore("}")
+        val qualities = listOf("1080p", "720p", "480p", "360p", "240p")
+
+        return qualities.mapNotNull { quality ->
+            val link = sources.substringAfter("\"$quality\":\"").substringBefore("\"").replace("\\/", "/")
+            if (link.contains("http")) {
+                Video(link, quality, link)
+            } else null
+        }
     }
 }

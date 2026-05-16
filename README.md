@@ -1,50 +1,32 @@
-| Install | Build | Support Server |
-|---------|-------|----------------|
-| [![Install](https://img.shields.io/badge/Click%20here%20to%20install%20this%20repo-green&style=flat)](https://intradeus.github.io/http-protocol-redirector/?r=aniyomi://add-repo?url=https://raw.githubusercontent.com/aniyomiorg/aniyomi-extensions/repo/index.min.json) | ![CI](https://github.com/aniyomiorg/aniyomi-extensions/workflows/CI/badge.svg?event=push) | [![Discord](https://img.shields.io/discord/841701076242530374?label=discord&labelColor=7289da&color=2c2f33&style=flat)](https://discord.gg/F32UjdJZrR) |
+# Anime-Repo
 
-# ![app icon](./.github/readme-images/app-icon.png)Aniyomi Extensions
-Aniyomi is a free and open source manga reader for Android 6.0 and above.
+This repository contains custom Aniyomi extensions for various adult-oriented video websites.
 
-This repository contains the available extension catalogues for the [Aniyomi](https://github.com/aniyomiorg/aniyomi) fork.
+## Extensions Included
 
-# Usage
+1.  **TNAFlix** - English
+2.  **EPorner** - English
+3.  **xHamster** - English
+4.  **SpankBang** - English
+5.  **BigFuck.tv** - English
 
-Extension sources can be downloaded, installed, and uninstalled via the main Aniyomi app. They are installed and uninstalled like regular apps, in `.apk` format.
+## Usage
 
-## Downloads
+To use these extensions in Aniyomi, add the following repository URL to your app:
 
-If you prefer to directly download the APK files, they are available via https://aniyomi.org/extensions/ or directly in this GitHub repository in the [`repo` branch](https://github.com/aniyomiorg/aniyomi-extensions/tree/repo/apk).
+`https://raw.githubusercontent.com/DjSergio88/Anime-Repo/repo/index.min.json`
 
-# Requests
+## Installation
 
-Source requests here are meant as up-for-grabs for any developer, thus it's impossible to provide a time estimation for any of them. Furthermore, some sites are impossible to do, usually because of various technical reasons.
+1.  Open Aniyomi.
+2.  Go to **More** -> **Settings** -> **Browse** -> **Extension repositories**.
+3.  Add the URL above.
+4.  Go to the **Browse** tab and look for the new extensions in the **Extensions** section.
 
-# Contributing
+## NSFW Content
 
-Contributions are welcome!
+All extensions in this repository provide NSFW content. Ensure you have the appropriate settings enabled in Aniyomi to view them.
 
-Check out the repo's [issue backlog](https://github.com/aniyomiorg/aniyomi-extensions/issues) for source requests and bug reports.
+---
 
-To get started with development, see [CONTRIBUTING.md](./CONTRIBUTING.md).
-
-It might also be good to read our [CODE_OF_CONDUCT.md](./CODE_OF_CONDUCT.md).
-
-## License
-
-    Copyright 2015 Javier Tomás
-
-    Licensed under the Apache License, Version 2.0 (the "License");
-    you may not use this file except in compliance with the License.
-    You may obtain a copy of the License at
-
-    http://www.apache.org/licenses/LICENSE-2.0
-
-    Unless required by applicable law or agreed to in writing, software
-    distributed under the License is distributed on an "AS IS" BASIS,
-    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-    See the License for the specific language governing permissions and
-    limitations under the License.
-
-## Disclaimer
-
-The developer of this application does not have any affiliation with the content providers available.
+*Disclaimer: This repository is for educational purposes and is not affiliated with the content providers.*

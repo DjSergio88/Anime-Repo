@@ -70,8 +70,20 @@ class SpankBang : AnimeHttpSource() {
         val response = client.newCall(GET("$baseUrl${episode.url}")).execute()
         val html = response.body.string()
 
-        // Extract stream_key and call internal API
-        // Pattern: data-streamkey="([^"]+)"
-        return emptyList()
+        val streamKey = html.substringAfter("data-streamkey=\"").substringBefore("\"")
+        if (streamKey.isEmpty()) return emptyList()
+
+        val id = episode.url.substringAfter("/").substringBefore("/")
+        val apiResponse = client.newCall(GET("$baseUrl/api/videos/stream?id=$id&data=$streamKey", headers)).execute()
+        val json = apiResponse.body.string()
+
+        // The API returns quality maps. For simplicity, we extract keys like "720p"
+        val qualities = listOf("4k", "1080p", "720p", "480p", "320p", "240p")
+        return qualities.mapNotNull { quality ->
+            val link = json.substringAfter("\"$quality\":[\"").substringBefore("\"").replace("\\/", "/")
+            if (link.contains("http")) {
+                Video(link, quality, link)
+            } else null
+        }
     }
 }

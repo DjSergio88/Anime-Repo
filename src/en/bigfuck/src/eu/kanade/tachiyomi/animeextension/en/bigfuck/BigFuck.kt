@@ -67,7 +67,20 @@ class BigFuck : AnimeHttpSource() {
     }
 
     override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        // Need to parse video source
+        val response = client.newCall(GET(episode.url)).execute()
+        val html = response.body.string()
+
+        // Search for mp4 source in script or video tag
+        val videoUrl = html.substringAfter("<source src=\"").substringBefore("\"")
+        if (videoUrl.contains("http")) {
+            return listOf(Video(videoUrl, "Default", videoUrl))
+        }
+
+        val scriptUrl = html.substringAfter("video_url: '").substringBefore("'")
+        if (scriptUrl.contains("http")) {
+            return listOf(Video(scriptUrl, "Default", scriptUrl))
+        }
+
         return emptyList()
     }
 }
