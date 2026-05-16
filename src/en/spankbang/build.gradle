@@ -1,0 +1,8 @@
+ext {
+    extName = 'SpankBang'
+    extClass = '.SpankBang'
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply from: "$rootDir/common.gradle"

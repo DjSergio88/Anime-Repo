@@ -1,0 +1,8 @@
+ext {
+    extName = 'EPorner'
+    extClass = '.EPorner'
+    extVersionCode = 1
+    isNsfw = true
+}
+
+apply from: "$rootDir/common.gradle"
