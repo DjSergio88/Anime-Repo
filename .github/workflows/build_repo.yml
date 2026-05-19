@@ -30,8 +30,19 @@ jobs:
           ALIAS: ${{ secrets.ALIAS }}
         run: |
           if [ -n "$SIGNING_KEY_BASE64" ]; then
-            echo "$SIGNING_KEY_BASE64" | tr -dc 'A-Za-z0-9+/=' | base64 -d > signingkey.jks
-            keytool -list -v -keystore signingkey.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" | grep "SHA256:" || true
+            echo "Decoding signing key using Python..."
+            python3 -c "import base64, os; data = os.environ['SIGNING_KEY_BASE64']; open('signingkey.jks', 'wb').write(base64.b64decode(data))"
+            
+            if [ -s "signingkey.jks" ]; then
+              echo "--- SIGNING KEY FINGERPRINT (SHA-256) ---"
+              keytool -list -v -keystore signingkey.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" | grep "SHA256:" || echo "Warning: Could not extract fingerprint. Check ALIAS and PASSWORD secrets."
+              echo "------------------------------------------"
+            else
+              echo "Error: signingkey.jks is empty or was not created!"
+              exit 1
+            fi
+          else
+            echo "Warning: SIGNING_KEY secret is missing!"
           fi
 
       - name: Set up Gradle
@@ -55,8 +66,12 @@ jobs:
           mkdir -p ~/apk-artifacts
           find . -type f -name "*.apk" -exec cp {} ~/apk-artifacts/ \;
           python3 ./.github/scripts/move-apks.py
+          
+          # Download Inspector
           INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/aniyomiorg/aniyomi-extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
           curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
+          
+          # Run Inspector and create repo
           echo "{}" > output.json
           java -jar ./Inspector.jar "repo/apk" "output.json" "tmp" || true
           python3 ./.github/scripts/create-repo.py
@@ -65,13 +80,30 @@ jobs:
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          cp -r repo ../repo-output
+          
+          # Save the generated repo folder
+          if [ -d "repo" ]; then
+            cp -r repo ../repo-output
+          else
+            echo "Error: repo folder not found!"
+            exit 1
+          fi
+          
+          # Fetch and checkout repo branch
           git fetch origin repo || true
           git checkout repo || git checkout --orphan repo
+          
+          # Completely clear the branch
           git rm -rf . || true
+          
+          # Move new artifacts back
           cp -r ../repo-output/* .
+          
+          # Add and commit
           git add .
           if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Update extensions repo [$(date)]"
             git push origin repo --force
+          else
+            echo "No changes to commit"
           fi
