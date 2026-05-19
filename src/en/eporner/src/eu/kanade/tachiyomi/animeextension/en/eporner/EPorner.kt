@@ -40,7 +40,8 @@ class EPorner : AnimeHttpSource() {
                 thumbnail_url = video.default_thumb.src
             }
         }
-        return AnimesPage(animeList, responseData.videos.isNotEmpty())
+        val hasNextPage = responseData.videos.size == 30
+        return AnimesPage(animeList, hasNextPage)
     }
 
     override fun latestUpdatesRequest(page: Int): Request {
@@ -56,29 +57,25 @@ class EPorner : AnimeHttpSource() {
     override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
     override fun animeDetailsParse(response: Response): SAnime {
-        // We get basic details from search, but can refine here if needed
-        // For now, return the anime as is (initialized = true in episode list)
-        return SAnime.create()
+        return SAnime.create().apply {
+            status = SAnime.COMPLETED
+            initialized = true
+        }
     }
 
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        anime.initialized = true
-        return anime
-    }
-
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override fun episodeListParse(response: Response): List<SEpisode> {
         val episode = SEpisode.create().apply {
-            url = anime.url
+            url = response.request.url.toString()
             name = "Video"
             episode_number = 1f
         }
         return listOf(episode)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val id = episode.url.substringAfter("/video-").substringBefore("/")
-        val response = client.newCall(GET("$apiUrl/id/?id=$id")).execute()
-        val responseData = json.decodeFromString<EPornerVideoDetails>(response.body.string())
+    override fun videoListParse(response: Response): List<Video> {
+        val id = response.request.url.toString().substringAfter("/video-").substringBefore("/")
+        val apiResponse = client.newCall(GET("$apiUrl/id/?id=$id")).execute()
+        val responseData = json.decodeFromString<EPornerVideoDetails>(apiResponse.body.string())
 
         return responseData.sources.mp4.map { (quality, link) ->
             Video(link, quality, link)
@@ -87,28 +84,28 @@ class EPorner : AnimeHttpSource() {
 
     @Serializable
     data class EPornerResponse(
-        val videos: List<EPornerVideo>
+        val videos: List<EPornerVideo>,
     )
 
     @Serializable
     data class EPornerVideo(
         val title: String,
         val url: String,
-        val default_thumb: EPornerThumb
+        val default_thumb: EPornerThumb,
     )
 
     @Serializable
     data class EPornerThumb(
-        val src: String
+        val src: String,
     )
 
     @Serializable
     data class EPornerVideoDetails(
-        val sources: EPornerSources
+        val sources: EPornerSources,
     )
 
     @Serializable
     data class EPornerSources(
-        val mp4: Map<String, String>
+        val mp4: Map<String, String>,
     )
 }

@@ -31,8 +31,12 @@ class TNAFlix : AnimeHttpSource() {
             SAnime.create().apply {
                 val link = element.select("a").first()
                 url = link?.attr("href") ?: ""
-                title = element.select("img").attr("alt").ifEmpty { link?.attr("title") ?: "" }
-                thumbnail_url = element.select("img").attr("data-src").ifEmpty { element.select("img").attr("src") }
+                title = element.select("img").attr("alt").ifEmpty {
+                    link?.attr("title") ?: ""
+                }
+                thumbnail_url = element.select("img").attr("data-src").ifEmpty {
+                    element.select("img").attr("src")
+                }
             }
         }.filter { it.url.isNotEmpty() }
 
@@ -52,24 +56,23 @@ class TNAFlix : AnimeHttpSource() {
 
     override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
-    override fun animeDetailsParse(response: Response): SAnime = SAnime.create()
-
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        anime.initialized = true
-        return anime
+    override fun animeDetailsParse(response: Response): SAnime {
+        return SAnime.create().apply {
+            status = SAnime.COMPLETED
+            initialized = true
+        }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override fun episodeListParse(response: Response): List<SEpisode> {
         val episode = SEpisode.create().apply {
-            url = anime.url
+            url = response.request.url.toString()
             name = "Video"
             episode_number = 1f
         }
         return listOf(episode)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val response = client.newCall(GET(episode.url)).execute()
+    override fun videoListParse(response: Response): List<Video> {
         val html = response.body.string()
 
         val videoUrl = html.substringAfter("video_url: '").substringBefore("'")
@@ -77,7 +80,6 @@ class TNAFlix : AnimeHttpSource() {
             return listOf(Video(videoUrl, "Default", videoUrl))
         }
 
-        // Alternative: flashvars
         val flashvars = html.substringAfter("flashvars = {").substringBefore("};")
         val link = flashvars.substringAfter("\"video_url\":\"").substringBefore("\"").replace("\\/", "/")
         if (link.isNotEmpty()) {

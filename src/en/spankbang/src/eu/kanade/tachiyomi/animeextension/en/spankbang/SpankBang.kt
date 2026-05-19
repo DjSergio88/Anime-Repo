@@ -31,7 +31,9 @@ class SpankBang : AnimeHttpSource() {
             SAnime.create().apply {
                 url = element.select("a.n").attr("href")
                 title = element.select("a.n").text()
-                thumbnail_url = element.select("img").attr("data-src").ifEmpty { element.select("img").attr("src") }
+                thumbnail_url = element.select("img").attr("data-src").ifEmpty {
+                    element.select("img").attr("src")
+                }
             }
         }
         val hasNextPage = document.select("a.next").isNotEmpty()
@@ -50,40 +52,42 @@ class SpankBang : AnimeHttpSource() {
 
     override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
-    override fun animeDetailsParse(response: Response): SAnime = SAnime.create()
-
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        anime.initialized = true
-        return anime
+    override fun animeDetailsParse(response: Response): SAnime {
+        return SAnime.create().apply {
+            status = SAnime.COMPLETED
+            initialized = true
+        }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override fun episodeListParse(response: Response): List<SEpisode> {
         val episode = SEpisode.create().apply {
-            url = anime.url
+            url = response.request.url.toString()
             name = "Video"
             episode_number = 1f
         }
         return listOf(episode)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val response = client.newCall(GET("$baseUrl${episode.url}")).execute()
+    override fun videoListParse(response: Response): List<Video> {
         val html = response.body.string()
 
         val streamKey = html.substringAfter("data-streamkey=\"").substringBefore("\"")
-        if (streamKey.isEmpty()) return emptyList()
+        if (streamKey.isEmpty()) {
+            return emptyList()
+        }
 
-        val id = episode.url.substringAfter("/").substringBefore("/")
+        val id = response.request.url.toString().substringAfter("/").substringBefore("/")
         val apiResponse = client.newCall(GET("$baseUrl/api/videos/stream?id=$id&data=$streamKey", headers)).execute()
         val json = apiResponse.body.string()
 
-        // The API returns quality maps. For simplicity, we extract keys like "720p"
         val qualities = listOf("4k", "1080p", "720p", "480p", "320p", "240p")
         return qualities.mapNotNull { quality ->
             val link = json.substringAfter("\"$quality\":[\"").substringBefore("\"").replace("\\/", "/")
             if (link.contains("http")) {
                 Video(link, quality, link)
-            } else null
+            } else {
+                null
+            }
         }
     }
 }

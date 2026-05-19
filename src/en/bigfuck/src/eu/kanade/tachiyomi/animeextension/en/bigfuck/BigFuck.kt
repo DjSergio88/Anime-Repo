@@ -31,7 +31,9 @@ class BigFuck : AnimeHttpSource() {
             SAnime.create().apply {
                 url = element.select("a").attr("href")
                 title = element.select("span.title, a").text()
-                thumbnail_url = element.select("img").attr("data-src").ifEmpty { element.select("img").attr("src") }
+                thumbnail_url = element.select("img").attr("data-src").ifEmpty {
+                    element.select("img").attr("src")
+                }
             }
         }
         val hasNextPage = document.select("li.next").isNotEmpty()
@@ -50,27 +52,25 @@ class BigFuck : AnimeHttpSource() {
 
     override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
-    override fun animeDetailsParse(response: Response): SAnime = SAnime.create()
-
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        anime.initialized = true
-        return anime
+    override fun animeDetailsParse(response: Response): SAnime {
+        return SAnime.create().apply {
+            status = SAnime.COMPLETED
+            initialized = true
+        }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override fun episodeListParse(response: Response): List<SEpisode> {
         val episode = SEpisode.create().apply {
-            url = anime.url
+            url = response.request.url.toString()
             name = "Video"
             episode_number = 1f
         }
         return listOf(episode)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val response = client.newCall(GET(episode.url)).execute()
+    override fun videoListParse(response: Response): List<Video> {
         val html = response.body.string()
 
-        // Search for mp4 source in script or video tag
         val videoUrl = html.substringAfter("<source src=\"").substringBefore("\"")
         if (videoUrl.contains("http")) {
             return listOf(Video(videoUrl, "Default", videoUrl))

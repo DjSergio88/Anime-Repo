@@ -11,7 +11,7 @@ import eu.kanade.tachiyomi.util.asJsoup
 import okhttp3.Request
 import okhttp3.Response
 
-class xHamster : AnimeHttpSource() {
+class XHamster : AnimeHttpSource() {
 
     override val name = "xHamster"
 
@@ -31,7 +31,9 @@ class xHamster : AnimeHttpSource() {
             SAnime.create().apply {
                 url = element.select("a.video-thumb__image-container").attr("href")
                 title = element.select("div.video-thumb__name").text()
-                thumbnail_url = element.select("img").attr("data-src").ifEmpty { element.select("img").attr("src") }
+                thumbnail_url = element.select("img").attr("data-src").ifEmpty {
+                    element.select("img").attr("src")
+                }
             }
         }
         val hasNextPage = document.select("a[data-page=next]").isNotEmpty()
@@ -50,28 +52,29 @@ class xHamster : AnimeHttpSource() {
 
     override fun searchAnimeParse(response: Response): AnimesPage = popularAnimeParse(response)
 
-    override fun animeDetailsParse(response: Response): SAnime = SAnime.create()
-
-    override suspend fun getAnimeDetails(anime: SAnime): SAnime {
-        anime.initialized = true
-        return anime
+    override fun animeDetailsParse(response: Response): SAnime {
+        return SAnime.create().apply {
+            status = SAnime.COMPLETED
+            initialized = true
+        }
     }
 
-    override suspend fun getEpisodeList(anime: SAnime): List<SEpisode> {
+    override fun episodeListParse(response: Response): List<SEpisode> {
         val episode = SEpisode.create().apply {
-            url = anime.url
+            url = response.request.url.toString()
             name = "Video"
             episode_number = 1f
         }
         return listOf(episode)
     }
 
-    override suspend fun getVideoList(episode: SEpisode): List<Video> {
-        val response = client.newCall(GET(episode.url)).execute()
+    override fun videoListParse(response: Response): List<Video> {
         val html = response.body.string()
 
         val initials = html.substringAfter("window.initials = ").substringBefore("};") + "}"
-        if (!initials.contains("http")) return emptyList()
+        if (!initials.contains("http")) {
+            return emptyList()
+        }
 
         val sources = initials.substringAfter("\"sources\":{").substringBefore("}")
         val qualities = listOf("1080p", "720p", "480p", "360p", "240p")
@@ -80,7 +83,9 @@ class xHamster : AnimeHttpSource() {
             val link = sources.substringAfter("\"$quality\":\"").substringBefore("\"").replace("\\/", "/")
             if (link.contains("http")) {
                 Video(link, quality, link)
-            } else null
+            } else {
+                null
+            }
         }
     }
 }
