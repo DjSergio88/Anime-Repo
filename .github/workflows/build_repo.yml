@@ -1,0 +1,77 @@
+name: Build and Publish Repo
+
+on:
+  push:
+    branches:
+      - main
+    paths-ignore:
+      - '**.md'
+
+jobs:
+  build:
+    name: Build Extensions
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          java-version: 17
+          distribution: temurin
+
+      - name: Prepare signing key
+        env:
+          SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          ALIAS: ${{ secrets.ALIAS }}
+        run: |
+          if [ -n "$SIGNING_KEY_BASE64" ]; then
+            echo "$SIGNING_KEY_BASE64" | tr -dc 'A-Za-z0-9+/=' | base64 -d > signingkey.jks
+            keytool -list -v -keystore signingkey.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" | grep "SHA256:" || true
+          fi
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+
+      - name: Build extensions
+        env:
+          ALIAS: ${{ secrets.ALIAS }}
+          KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          if [ -f "signingkey.jks" ]; then
+            ./gradlew assembleRelease || ./gradlew assembleDebug
+          else
+            ./gradlew assembleDebug
+          fi
+
+      - name: Create repo artifacts
+        run: |
+          mkdir -p ~/apk-artifacts
+          find . -type f -name "*.apk" -exec cp {} ~/apk-artifacts/ \;
+          python3 ./.github/scripts/move-apks.py
+          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/aniyomiorg/aniyomi-extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
+          curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
+          echo "{}" > output.json
+          java -jar ./Inspector.jar "repo/apk" "output.json" "tmp" || true
+          python3 ./.github/scripts/create-repo.py
+
+      - name: Deploy to repo branch
+        run: |
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git config --global user.name "github-actions[bot]"
+          cp -r repo ../repo-output
+          git fetch origin repo || true
+          git checkout repo || git checkout --orphan repo
+          git rm -rf . || true
+          cp -r ../repo-output/* .
+          git add .
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Update extensions repo [$(date)]"
+            git push origin repo --force
+          fi
