@@ -13,7 +13,7 @@ import okhttp3.Response
 
 class XHamster : AnimeHttpSource() {
 
-    override val name = "xHamster"
+    override val name = "XHamster"
 
     override val baseUrl = "https://xhamster.com"
 

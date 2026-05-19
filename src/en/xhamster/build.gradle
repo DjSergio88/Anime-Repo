@@ -1,6 +1,6 @@
 ext {
-    extName = 'xHamster'
-    extClass = '.xHamster'
+    extName = 'XHamster'
+    extClass = '.XHamster'
     extVersionCode = 1
     isNsfw = true
 }
