@@ -53,6 +53,7 @@ jobs:
           ALIAS: ${{ secrets.ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+          CI_CHUNK_SIZE: 100
         run: |
           chmod +x gradlew
           if [ -f "signingkey.jks" ]; then
@@ -99,7 +100,6 @@ jobs:
           # Move new artifacts back
           cp -r ../repo-output/* .
           
-          # Add and commit
           git add .
           if [ -n "$(git status --porcelain)" ]; then
             git commit -m "Update extensions repo [$(date)]"
