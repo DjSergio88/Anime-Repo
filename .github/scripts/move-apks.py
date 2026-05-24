@@ -1,16 +1,35 @@
-from pathlib import Path
+#!/usr/bin/env python3
+"""Move APKs from build outputs to repo/apk directory."""
+
 import shutil
+from pathlib import Path
 
-REPO_APK_DIR = Path("repo/apk")
+def main():
+    repo_apk_dir = Path("repo/apk")
+    repo_apk_dir.mkdir(parents=True, exist_ok=True)
 
-try:
-    shutil.rmtree(REPO_APK_DIR)
-except FileNotFoundError:
-    pass
+    # Find all APKs in build directories
+    apk_count = 0
+    for apk in Path(".").rglob("*.apk"):
+        # Skip APKs already in repo/apk
+        if "repo/apk" in str(apk):
+            continue
+        # Skip test APKs
+        if "androidTest" in str(apk) or "test" in str(apk).lower():
+            continue
 
-REPO_APK_DIR.mkdir(parents=True, exist_ok=True)
+        dest = repo_apk_dir / apk.name
+        shutil.copy2(apk, dest)
+        apk_count += 1
+        print(f"Copied: {apk} -> {dest}")
 
-for apk in (Path.home() / "apk-artifacts").glob("**/*.apk"):
-    apk_name = apk.name.replace("-release.apk", ".apk")
+    print(f"\nTotal APKs collected: {apk_count}")
 
-    shutil.move(apk, REPO_APK_DIR / apk_name)
+    if apk_count == 0:
+        print("WARNING: No APKs found!")
+        return 1
+
+    return 0
+
+if __name__ == "__main__":
+    exit(main())

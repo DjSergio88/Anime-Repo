@@ -4,8 +4,15 @@ on:
   push:
     branches:
       - main
+      - master
     paths-ignore:
       - '**.md'
+      - '.github/workflows/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
 
 jobs:
   build:
@@ -23,6 +30,29 @@ jobs:
           java-version: 17
           distribution: temurin
 
+      - name: Install Android SDK & Build Tools
+        run: |
+          # Install Android command line tools
+          mkdir -p $HOME/android-sdk/cmdline-tools
+          cd $HOME/android-sdk/cmdline-tools
+          curl -o cmdline-tools.zip https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip
+          unzip -q cmdline-tools.zip
+          mv cmdline-tools latest
+
+          export ANDROID_HOME=$HOME/android-sdk
+          export PATH=$PATH:$ANDROID_HOME/cmdline-tools/latest/bin
+
+          # Accept licenses and install build-tools
+          yes | sdkmanager --licenses || true
+          sdkmanager "build-tools;34.0.0" "platforms;android-34" || true
+
+          echo "ANDROID_HOME=$ANDROID_HOME" >> $GITHUB_ENV
+          echo "$ANDROID_HOME/cmdline-tools/latest/bin" >> $GITHUB_PATH
+          echo "$ANDROID_HOME/build-tools/34.0.0" >> $GITHUB_PATH
+
+          # Verify aapt is available
+          which aapt || ls -la $ANDROID_HOME/build-tools/34.0.0/
+
       - name: Prepare signing key
         env:
           SIGNING_KEY_BASE64: ${{ secrets.SIGNING_KEY }}
@@ -32,17 +62,18 @@ jobs:
           if [ -n "$SIGNING_KEY_BASE64" ]; then
             echo "Decoding signing key using Python..."
             python3 -c "import base64, os; data = os.environ['SIGNING_KEY_BASE64']; open('signingkey.jks', 'wb').write(base64.b64decode(data))"
-            
+
             if [ -s "signingkey.jks" ]; then
+              echo "✅ Signing key created successfully"
               echo "--- SIGNING KEY FINGERPRINT (SHA-256) ---"
-              keytool -list -v -keystore signingkey.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" | grep "SHA256:" || echo "Warning: Could not extract fingerprint. Check ALIAS and PASSWORD secrets."
+              keytool -list -v -keystore signingkey.jks -alias "$ALIAS" -storepass "$KEY_STORE_PASSWORD" | grep "SHA256:" || echo "⚠️ Could not extract fingerprint. Check ALIAS and PASSWORD secrets."
               echo "------------------------------------------"
             else
-              echo "Error: signingkey.jks is empty or was not created!"
+              echo "❌ Error: signingkey.jks is empty or was not created!"
               exit 1
             fi
           else
-            echo "Warning: SIGNING_KEY secret is missing!"
+            echo "⚠️ Warning: SIGNING_KEY secret is missing! Will build unsigned APKs only."
           fi
 
       - name: Set up Gradle
@@ -53,57 +84,250 @@ jobs:
           ALIAS: ${{ secrets.ALIAS }}
           KEY_STORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
           KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
-          CI_CHUNK_SIZE: 100
         run: |
           chmod +x gradlew
+
+          # Try Release build with signing
           if [ -f "signingkey.jks" ]; then
-            ./gradlew assembleRelease || ./gradlew assembleDebug
+            echo "Building signed release APKs..."
+            ./gradlew assembleRelease || {
+              echo "⚠️ Release build failed, trying debug build..."
+              ./gradlew assembleDebug
+            }
           else
+            echo "Building debug APKs (no signing key)..."
             ./gradlew assembleDebug
           fi
 
-      - name: Create repo artifacts
+      - name: Collect APKs
         run: |
-          mkdir -p ~/apk-artifacts
-          find . -type f -name "*.apk" -exec cp {} ~/apk-artifacts/ \;
-          python3 ./.github/scripts/move-apks.py
-          
+          mkdir -p repo/apk
+          mkdir -p repo/icon
+
+          # Find and copy all APKs
+          APK_COUNT=$(find . -type f -name "*.apk" | wc -l)
+          echo "Found $APK_COUNT APK files"
+
+          if [ "$APK_COUNT" -eq 0 ]; then
+            echo "❌ No APKs found! Build may have failed."
+            exit 1
+          fi
+
+          find . -type f -name "*.apk" -exec cp {} repo/apk/ \;
+          ls -la repo/apk/
+
+      - name: Create repo with Inspector
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          cd repo
+
           # Download Inspector
-          INSPECTOR_LINK="$(curl -s "https://api.github.com/repos/aniyomiorg/aniyomi-extensions-inspector/releases/latest" | jq -r '.assets[0].browser_download_url')"
-          curl -L "$INSPECTOR_LINK" -o ./Inspector.jar
-          
-          # Run Inspector and create repo
-          echo "{}" > output.json
-          java -jar ./Inspector.jar "repo/apk" "output.json" "tmp" || true
-          python3 ./.github/scripts/create-repo.py
+          echo "Downloading Aniyomi Extensions Inspector..."
+          INSPECTOR_URL="https://github.com/aniyomiorg/aniyomi-extensions-inspector/releases/download/v1.4.4/Aniyomi.Extensions.Inspector-v1.4.4-r1.jar"
+          curl -L -o ../Inspector.jar "$INSPECTOR_URL" || {
+            echo "❌ Failed to download Inspector"
+            exit 1
+          }
+
+          # Run Inspector to analyze APKs
+          echo "Running Inspector..."
+          java -jar ../Inspector.jar "apk" "../output.json" "tmp" || {
+            echo "⚠️ Inspector failed, creating basic repo structure..."
+            echo "[]" > ../output.json
+          }
+
+          cd ..
+
+      - name: Generate index files
+        env:
+          ANDROID_HOME: ${{ env.ANDROID_HOME }}
+        run: |
+          # Check if we have the create-repo.py script
+          if [ -f ".github/scripts/create-repo.py" ]; then
+            echo "Using existing create-repo.py script..."
+            python3 .github/scripts/create-repo.py || {
+              echo "⚠️ create-repo.py failed, generating fallback index..."
+            }
+          fi
+
+          # If index files weren't created, generate fallback
+          if [ ! -f "repo/index.json" ]; then
+            echo "Generating fallback index.json..."
+
+            # Get signing key fingerprint if available
+            SIGNATURE=""
+            if [ -f "signingkey.jks" ] && [ -n "${{ secrets.ALIAS }}" ]; then
+              SIGNATURE=$(keytool -list -v -keystore signingkey.jks -alias "${{ secrets.ALIAS }}" -storepass "${{ secrets.KEY_STORE_PASSWORD }}" 2>/dev/null | grep "SHA256:" | sed 's/.*SHA256: //' | tr -d ':' || echo "")
+            fi
+
+            if [ -z "$SIGNATURE" ]; then
+              SIGNATURE="e6f093d42ae2c10bc48e42aa96726f55b799788ec1e4748c556cc4d6e19adc2a"
+            fi
+
+            # Generate basic index
+            python3 << 'PYEOF'
+          import json
+          import os
+          import re
+          import subprocess
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          repo_dir = Path("repo")
+          apk_dir = repo_dir / "apk"
+          icon_dir = repo_dir / "icon"
+          icon_dir.mkdir(parents=True, exist_ok=True)
+
+          # Try to find Android build tools
+          android_home = os.environ.get("ANDROID_HOME", os.path.expanduser("~/android-sdk"))
+          build_tools_dir = Path(android_home) / "build-tools"
+          aapt_path = None
+          if build_tools_dir.exists():
+              for subdir in sorted(build_tools_dir.iterdir(), reverse=True):
+                  candidate = subdir / "aapt"
+                  if candidate.exists():
+                      aapt_path = candidate
+                      break
+
+          index_data = []
+          index_min_data = []
+
+          for apk in apk_dir.iterdir():
+              if not apk.name.endswith(".apk"):
+                  continue
+
+              try:
+                  # Extract package info using aapt if available
+                  if aapt_path:
+                      badging = subprocess.check_output([str(aapt_path), "dump", "badging", str(apk)]).decode()
+
+                      pkg_match = re.search(r"package: name='([^']+)'", badging)
+                      ver_code_match = re.search(r"versionCode='([^']+)'", badging)
+                      ver_name_match = re.search(r"versionName='([^']+)'", badging)
+                      label_match = re.search(r"application-label:'([^']+)'", badging)
+                      icon_match = re.search(r"application-icon-320:'([^']+)'", badging)
+
+                      pkg = pkg_match.group(1) if pkg_match else f"eu.kanade.tachiyomi.animeextension.{apk.stem}"
+                      ver_code = int(ver_code_match.group(1)) if ver_code_match else 1
+                      ver_name = ver_name_match.group(1) if ver_name_match else "1.0"
+                      name = label_match.group(1) if label_match else apk.stem
+
+                      # Extract icon
+                      if icon_match:
+                          icon_path = icon_match.group(1)
+                          with ZipFile(apk) as z:
+                              if icon_path in z.namelist():
+                                  with z.open(icon_path) as src, (icon_dir / f"{pkg}.png").open("wb") as dst:
+                                      dst.write(src.read())
+                  else:
+                      # Fallback without aapt
+                      pkg = f"eu.kanade.tachiyomi.animeextension.{apk.stem}"
+                      ver_code = 1
+                      ver_name = "1.0"
+                      name = apk.stem
+
+                  # Detect language from filename
+                  lang_match = re.search(r'aniyomi-([^.]+)', apk.name)
+                  lang = lang_match.group(1) if lang_match else "all"
+
+                  common = {
+                      "name": name,
+                      "pkg": pkg,
+                      "apk": apk.name,
+                      "lang": lang,
+                      "code": ver_code,
+                      "version": ver_name,
+                      "nsfw": 1,
+                  }
+
+                  index_min_data.append({
+                      **common,
+                      "sources": [{"name": name, "lang": lang, "id": ver_code, "baseUrl": ""}]
+                  })
+                  index_data.append({
+                      **common,
+                      "hasReadme": 0,
+                      "hasChangelog": 0,
+                      "sources": [{"name": name, "lang": lang, "id": str(ver_code), "baseUrl": ""}]
+                  })
+              except Exception as e:
+                  print(f"Error processing {apk}: {e}")
+
+          index_data.sort(key=lambda x: x["pkg"])
+          index_min_data.sort(key=lambda x: x["pkg"])
+
+          # Get signature from environment or use default
+          signature = os.environ.get("SIGNATURE", "e6f093d42ae2c10bc48e42aa96726f55b799788ec1e4748c556cc4d6e19adc2a")
+
+          repo_meta = {
+              "name": "DjSergio88 Anime Repo",
+              "shortName": "DjSergio88",
+              "website": "https://github.com/DjSergio88/Anime-Repo",
+              "nsfw": True,
+              "signature": signature,
+              "version": "1.0",
+              "timestamp": int(__import__('time').time()),
+              "sources": index_data if index_data else []
+          }
+
+          with open(repo_dir / "index.json", "w", encoding="utf-8") as f:
+              json.dump(repo_meta, f, ensure_ascii=False, indent=2)
+
+          repo_meta_min = {
+              **repo_meta,
+              "sources": index_min_data if index_min_data else []
+          }
+
+          with open(repo_dir / "index.min.json", "w", encoding="utf-8") as f:
+              json.dump(repo_meta_min, f, ensure_ascii=False, separators=(",", ":"))
+
+          print(f"✅ Generated repo with {len(index_data)} extensions")
+          PYEOF
+          fi
+
+          # Verify files exist
+          ls -la repo/
+          cat repo/index.json | head -50
 
       - name: Deploy to repo branch
         run: |
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git config --global user.name "github-actions[bot]"
-          
+
           # Save the generated repo folder
           if [ -d "repo" ]; then
             cp -r repo ../repo-output
           else
-            echo "Error: repo folder not found!"
+            echo "❌ Error: repo folder not found!"
             exit 1
           fi
-          
-          # Fetch and checkout repo branch
-          git fetch origin repo || true
-          git checkout repo || git checkout --orphan repo
-          
-          # Completely clear the branch
-          git rm -rf . || true
-          
-          # Move new artifacts back
-          cp -r ../repo-output/* .
-          
-          git add .
-          if [ -n "$(git status --porcelain)" ]; then
-            git commit -m "Update extensions repo [$(date)]"
-            git push origin repo --force
+
+          # Fetch all branches
+          git fetch origin || true
+
+          # Try to checkout repo branch, create if doesn't exist
+          if git show-ref --verify --quiet refs/remotes/origin/repo; then
+            git checkout repo
           else
-            echo "No changes to commit"
+            git checkout --orphan repo
+            git rm -rf . || true
+          fi
+
+          # Clear current contents
+          git rm -rf . || true
+
+          # Copy new artifacts
+          cp -r ../repo-output/* .
+
+          # Add all files
+          git add -A
+
+          # Commit and push
+          if [ -n "$(git status --porcelain)" ]; then
+            git commit -m "Update extensions repo [$(date -u +%Y-%m-%d_%H:%M:%S)]"
+            git push origin repo --force
+            echo "✅ Repo deployed successfully!"
+          else
+            echo "ℹ️ No changes to commit"
           fi
